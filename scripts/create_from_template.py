@@ -287,7 +287,7 @@ def create_page(date: str, blocks: list) -> str:
     }
     
     result = curl_post(url, data)
-    return result.get("url", "")
+    return result.get("url", f"https://www.notion.so/{result.get('id', '').replace('-', '')}")
 
 
 def find_page_by_date(date: str) -> str:
