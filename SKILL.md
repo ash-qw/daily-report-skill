@@ -23,7 +23,7 @@ description: 生成并发送工作日报。触发场景：博士说"发送日报
 is_workday.py           → 判断今天是否为工作日（排除周末和法定节假日）
 fetch_report_data.py    → 从 Notion 读取数据，输出标准化 JSON
 compile_report.py       → 接收标准化 JSON，输出格式化日报文本
-create_template.py      → 根据指定日期内容创建新日报模板（支持递归子项）
+create_from_template.py → 根据指定日期内容创建新日报模板（支持递归子项，模块化版本）
 daily_report.py         → 编排脚本：fetch → compile → 发送（不再创建明日页面）
 ```
 
@@ -44,7 +44,7 @@ daily_report.py         → 编排脚本：fetch → compile → 发送（不再
 - 接收 JSON（`--data` 或 `--file`），输出格式化日报文本
 - 支持 `--format markdown`（默认）或 `--format html`
 
-### create_template.py
+### create_from_template.py
 - 根据指定日期的日报内容，创建新一天的日报模板
 - 规则：
   - 本周目标：直接复制（包含嵌套子项）
@@ -65,7 +65,7 @@ daily_report.py         → 编排脚本：fetch → compile → 发送（不再
 python3 ~/.openclaw/scripts/is_workday.py
 
 # 根据指定日期创建模板
-python3 create_template.py <YYYY-MM-DD>
+python3 create_from_template.py <YYYY-MM-DD>
 
 # 保存草稿（推荐）
 python3 daily_report.py <YYYY-MM-DD> --save-draft [--profile NAME]
