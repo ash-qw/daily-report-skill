@@ -65,6 +65,36 @@ def get_profile_to_cc(profile_name):
     return [], []
 
 
+def create_profile_to_cc(profile_name, to_list, cc_list=None):
+    """
+    在配置文件中创建或更新发送 profile。
+
+    Args:
+        profile_name: Profile 名称（如 "工作汇报"）
+        to_list: 收件人邮箱列表
+        cc_list: 抄送人邮箱列表（可选）
+    """
+    conf_path = os.path.expanduser("~/.openclaw/conf/enterprise-mail/config.json")
+    with open(conf_path) as f:
+        config = json.load(f)
+
+    if "profiles" not in config:
+        config["profiles"] = {}
+
+    config["profiles"][profile_name] = {
+        "to": to_list,
+        "cc": cc_list or []
+    }
+
+    with open(conf_path, "w") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+
+    print(f"[OK] Profile '{profile_name}' saved to {conf_path}")
+    print(f"  To: {', '.join(to_list)}")
+    if cc_list:
+        print(f"  Cc: {', '.join(cc_list)}")
+
+
 # ── Mail Configuration ───────────────────────────────────────────────────────
 
 def load_mail_config():
@@ -458,9 +488,24 @@ def main():
     parser.add_argument("--save-draft", action="store_true", help="Save to IMAP draft")
     parser.add_argument("--send-draft", metavar="UID", help="Send draft by UID")
     parser.add_argument("--format", "-f", choices=["markdown", "html"], default="html", help="Output format: markdown or html (default: html)")
+    parser.add_argument("--create-profile", metavar="JSON", help='创建发送 profile，格式：\'{"name":"profile_name","to":["a@a.com"],"cc":["b@b.com"]}\'')
     args = parser.parse_args()
     profile = args.profile
     output_format = args.format
+
+    # Create profile
+    if args.create_profile:
+        import json as jsonmod
+        try:
+            data = jsonmod.loads(args.create_profile)
+            name = data["name"]
+            to_list = data.get("to", [])
+            cc_list = data.get("cc", [])
+            create_profile_to_cc(name, to_list, cc_list)
+        except (jsonmod.JSONDecodeError, KeyError) as e:
+            print(f"[ERROR] Invalid profile JSON: {e}")
+            sys.exit(1)
+        sys.exit(0)
 
     # Send existing draft
     if args.send_draft:

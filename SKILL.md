@@ -57,6 +57,8 @@ daily_report.py         → 编排脚本：fetch → compile → 发送（不再
 ### daily_report.py
 - 主编排脚本，调用 fetch + compile 完成全流程
 - **独立实现邮件功能**：内联 `save_draft_to_imap()`, `send_email_native()` 等函数，不依赖其他技能
+- `get_profile_to_cc()` — 从配置文件读取发送 profile
+- `create_profile_to_cc()` — 创建或更新发送 profile 并写入配置文件
 
 ## 使用方式
 
@@ -66,6 +68,9 @@ python3 ~/.openclaw/scripts/is_workday.py
 
 # 根据指定日期创建模板
 python3 create_from_template.py <YYYY-MM-DD>
+
+# 创建发送 profile
+python3 daily_report.py --create-profile '{"name":"团队名","to":["a@a.com"],"cc":["b@b.com"]}'
 
 # 保存草稿（推荐）
 python3 daily_report.py <YYYY-MM-DD> --save-draft [--profile NAME]
