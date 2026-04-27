@@ -21,7 +21,7 @@ import argparse
 import json
 import os
 import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # 配置
 NOTION_KEY = ""
@@ -173,16 +173,11 @@ def create_page(date: str, blocks: list) -> str:
     """
     根据源 blocks 内容和日期创建新页面。
     
-    date 参数为源日期，函数内部计算明日作为页面标题:
-      - 周一 source → 周二 title
-      - 其他日子 source → 明天 title
-    
+    date 参数为源日期（昨日），页面标题固定为今天（当前日期）。
     按 section 分组处理 blocks，应用各自的复制规则后创建 Notion 页面。
     """
-    # 解析目标日期
-    target_date = datetime.strptime(date, "%Y-%m-%d")
-    tomorrow = target_date + timedelta(days=1)
-    title = tomorrow.strftime("%Y-%m-%d")
+    # 页面标题固定为今天（定时任务场景下即创建模板的当天）
+    title = datetime.now().strftime("%Y-%m-%d")
     
     # 解析 blocks，按 section 分组
     # section 是从 heading_1 到下一个 heading_1 之间的内容
