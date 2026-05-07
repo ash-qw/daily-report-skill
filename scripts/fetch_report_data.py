@@ -30,6 +30,14 @@ NOTION_VERSION = "2025-09-03"
 
 def notion_req(method, endpoint, body=None, retries=3):
     """向 Notion API 发起请求，自动携带认证头和重试逻辑。"""
+    import os
+    proxy = os.environ.get('https_proxy') or os.environ.get('http_proxy')
+    ctx = ssl.create_default_context()
+    if proxy:
+        proxy_handler = urllib.request.ProxyHandler({'https': proxy, 'http': proxy})
+        opener = urllib.request.build_opener(proxy_handler)
+    else:
+        opener = urllib.request.build_opener()
     with open(NOTION_KEY_PATH) as f:
         key = f.read().strip()
     url = "https://api.notion.com/v1" + endpoint
@@ -39,12 +47,11 @@ def notion_req(method, endpoint, body=None, retries=3):
     req.add_header("Notion-Version", NOTION_VERSION)
     if body:
         req.add_header("Content-Type", "application/json")
-    ctx = ssl.create_default_context()
 
     last_err = None
     for attempt in range(retries):
         try:
-            with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+            with opener.open(req, timeout=15) as resp:
                 return json.loads(resp.read())
         except Exception as e:
             last_err = e
@@ -141,6 +148,19 @@ def parse_blocks(page_id):
     return sections
 
 
+def fetch_for_date(date_str):
+    """Fetch and return report data for a given date. Used by daily_report.py."""
+    page_id = find_date_page(date_str)
+    if not page_id:
+        return None
+    sections = parse_blocks(page_id)
+    return {
+        "date": date_str,
+        "page_id": page_id,
+        "sections": sections
+    }
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Fetch report raw data from Notion")
@@ -148,17 +168,11 @@ def main():
     args = parser.parse_args()
     date_str = args.date.strip()
 
-    page_id = find_date_page(date_str)
-    if not page_id:
+    result = fetch_for_date(date_str)
+    if not result:
         print(json.dumps({"error": f"No page found for {date_str}"}))
         sys.exit(1)
 
-    sections = parse_blocks(page_id)
-    result = {
-        "date": date_str,
-        "page_id": page_id,
-        "sections": sections
-    }
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

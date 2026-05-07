@@ -9,7 +9,16 @@ Daily Report Generator
 
 import json
 import sys
+import os
 import subprocess
+
+# Add scripts dir to path so we can import fetch_report_data and compile_report directly
+_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+import fetch_report_data
+import compile_report
 import os
 import time
 import imaplib
@@ -27,7 +36,28 @@ DRAFT_LOG = os.path.expanduser("~/.openclaw/workspace/record/日报草稿/draft_
 MAIL_CONFIG_PATH = os.path.expanduser("~/.openclaw/conf/enterprise-mail/config.json")
 
 
-# ── Draft log ─────────────────────────────────────────────────────────────────
+# ── Sent marker ───────────────────────────────────────────────────────────────
+
+MARKER_DIR = os.path.expanduser("~/.openclaw/workspace")
+
+def get_sent_marker_path(date_str):
+    return os.path.join(MARKER_DIR, f".daily_report_sent_{date_str}")
+
+def create_sent_marker(date_str):
+    """创建已发送标记文件，防止定时任务重复发送"""
+    try:
+        marker_path = get_sent_marker_path(date_str)
+        with open(marker_path, "w") as f:
+            f.write(f"sent_at={time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        print(f"[MARKER] Created sent marker: {marker_path}")
+        return True
+    except Exception as e:
+        print(f"[WARNING] Failed to create sent marker: {e}")
+        return False
+
+def check_sent_marker(date_str):
+    """检查是否已发送过日报"""
+    return os.path.exists(get_sent_marker_path(date_str))
 
 def save_draft_uid(date_str, uid, profile=None):
     os.makedirs(os.path.dirname(DRAFT_LOG), exist_ok=True)
@@ -238,14 +268,18 @@ def send_email_native(subject, content, recipients, cc_list=None, is_html=False,
                 msg['Cc'] = ", ".join(cc_list)
             msg['Subject'] = Header(subject, 'utf-8')
             
-            server.sendmail(from_addr, all_recipients, msg.as_string())
+            failed = server.sendmail(from_addr, all_recipients, msg.as_string())
             server.quit()
+            
+            if failed:
+                print(f"[SMTP] Some recipients failed: {failed}")
+                return False, str(failed)
             
             print("[SMTP] Email sent successfully!")
             return True, None
             
         except Exception as e:
-            error_msg = str(e)
+            error_msg = str(e) if str(e) else repr(e)
             print(f"[SMTP] Attempt {attempt + 1} failed: {error_msg}")
             
             if attempt < max_retries - 1:
@@ -325,14 +359,18 @@ def send_draft_with_retry(raw_email_bytes, from_addr, to_list, cc_list, smtp_con
                 effective_recipients = recipients if recipients else [from_addr]
             
             # 发送邮件
-            server.send_message(msg, from_addr=from_addr, to_addrs=effective_recipients)
+            failed = server.send_message(msg, from_addr=from_addr, to_addrs=effective_recipients)
             server.quit()
+            
+            if failed:
+                print(f"[SMTP] Some recipients failed: {failed}")
+                return False, str(failed), effective_recipients
             
             print(f"[SMTP] Email sent successfully!")
             return True, None, effective_recipients
             
         except Exception as e:
-            error_msg = str(e)
+            error_msg = str(e) if str(e) else repr(e)
             print(f"[SMTP] Attempt {attempt + 1} failed: {error_msg}")
             
             if attempt < max_retries - 1:
@@ -340,7 +378,7 @@ def send_draft_with_retry(raw_email_bytes, from_addr, to_list, cc_list, smtp_con
                 print(f"[SMTP] Retrying in {wait_time}s...")
                 time.sleep(wait_time)
             else:
-                return False, error_msg
+                return False, error_msg, []
     
     return False, "Max retries exceeded"
 
@@ -608,9 +646,10 @@ def main():
         if cc_list:
             print(f"  Cc: {', '.join(cc_list)}")
         
-        # 删除 IMAP 草稿（发送成功后才执行）
-        # 1. 从 draft_uid.txt 读取日期
+        # 创建已发送标记（防止定时任务重复发送）
         draft_date, _, _ = load_draft_uid()
+        if draft_date:
+            create_sent_marker(draft_date)
         
         # 2. 先删除当前发送的草稿
         delete_success = delete_imap_draft(draft_uid, imap_cfg, auth_cfg)
@@ -633,20 +672,11 @@ def main():
     date_str = args.date.strip()
     test_mode = args.test
 
-    # 1. Fetch: 调用 fetch_report_data.py 获取标准化 JSON
-    r = subprocess.run(
-        ["python3", FETCH_SCRIPT, date_str],
-        capture_output=True, text=True
-    )
-    if r.returncode != 0:
-        print("[ERROR] fetch failed:", r.stderr)
+    # 1. Fetch: 直接调用 fetch_report_data 模块获取标准化 JSON
+    data = fetch_report_data.fetch_for_date(date_str)
+    if not data:
+        print(f"[ERROR] No page found for {date_str}")
         sys.exit(1)
-    try:
-        data = json.loads(r.stdout)
-    except json.JSONDecodeError:
-        print("[ERROR] failed to parse fetched data")
-        sys.exit(1)
-
     sections = data.get("sections", {})
 
     # 2. Check empty (正式模式)
@@ -655,16 +685,8 @@ def main():
         print("[EMPTY] Empty sections: " + ", ".join(empty) + ". Exiting.")
         sys.exit(0)
 
-    # 3. Compile: 调用 compile_report.py 生成日报文本
-    data_json = json.dumps({"date": date_str, "sections": sections})
-    r = subprocess.run(
-        ["python3", COMPILE_SCRIPT, "--data", data_json, "--format", output_format],
-        capture_output=True, text=True
-    )
-    if r.returncode != 0:
-        print("[ERROR] compile failed:", r.stderr)
-        sys.exit(1)
-    body = r.stdout
+    # 3. Compile: 直接调用 compile_report 模块生成日报文本
+    body = compile_report.compile_report(date_str, sections, output_format=output_format)
 
     subject = "工作日报 - " + date_str
 
@@ -712,6 +734,9 @@ def main():
         sys.exit(1)
     
     print("[OK] Email sent: " + date_str)
+    
+    # 创建已发送标记（防止定时任务重复发送）
+    create_sent_marker(date_str)
 
     # 5. 不再自动创建明日页面（2026-04-14 博士决定禁用）
     print("[OK] Done. Next-day page creation is disabled.")
