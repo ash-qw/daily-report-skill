@@ -9,16 +9,7 @@ Daily Report Generator
 
 import json
 import sys
-import os
 import subprocess
-
-# Add scripts dir to path so we can import fetch_report_data and compile_report directly
-_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
-if _SCRIPTS_DIR not in sys.path:
-    sys.path.insert(0, _SCRIPTS_DIR)
-
-import fetch_report_data
-import compile_report
 import os
 import time
 import imaplib
@@ -672,11 +663,20 @@ def main():
     date_str = args.date.strip()
     test_mode = args.test
 
-    # 1. Fetch: 直接调用 fetch_report_data 模块获取标准化 JSON
-    data = fetch_report_data.fetch_for_date(date_str)
-    if not data:
-        print(f"[ERROR] No page found for {date_str}")
+    # 1. Fetch: 调用 fetch_report_data.py 获取标准化 JSON
+    r = subprocess.run(
+        ["python3", FETCH_SCRIPT, date_str],
+        capture_output=True, text=True
+    )
+    if r.returncode != 0:
+        print("[ERROR] fetch failed:", r.stderr)
         sys.exit(1)
+    try:
+        data = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        print("[ERROR] failed to parse fetched data")
+        sys.exit(1)
+
     sections = data.get("sections", {})
 
     # 2. Check empty (正式模式)
@@ -685,8 +685,16 @@ def main():
         print("[EMPTY] Empty sections: " + ", ".join(empty) + ". Exiting.")
         sys.exit(0)
 
-    # 3. Compile: 直接调用 compile_report 模块生成日报文本
-    body = compile_report.compile_report(date_str, sections, output_format=output_format)
+    # 3. Compile: 调用 compile_report.py 生成日报文本
+    data_json = json.dumps({"date": date_str, "sections": sections})
+    r = subprocess.run(
+        ["python3", COMPILE_SCRIPT, "--data", data_json, "--format", output_format],
+        capture_output=True, text=True
+    )
+    if r.returncode != 0:
+        print("[ERROR] compile failed:", r.stderr)
+        sys.exit(1)
+    body = r.stdout
 
     subject = "工作日报 - " + date_str
 
